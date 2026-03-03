@@ -1,0 +1,51 @@
+{
+  // 服务端口号
+  "PORT": 4000,
+
+  // 二进制可执行文件路径
+  "BINARIES": {
+    // FFmpeg 可执行文件路径
+    // 用于视频帧提取等音视频处理任务
+    "FFMPEG_PATH": "C:/Users/ymj/Desktop/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe",
+    // LichtFeld Studio 可执行文件路径
+    // 用于 Gaussian Splatting 训练和重建
+    "LICHTFELD_PATH": "D:/LichtFeld-Studio-windows-nightly-2026-02-03-5a92bff/bin/LichtFeld-Studio.exe",
+    // COLMAP 可执行文件路径
+    // 用于 Structure-from-Motion (SfM) 三维重建
+    "COLMAP_PATH": "E:/colmap-x64-windows-cuda/COLMAP.bat"
+  },
+
+  // 存储目录配置
+  "STORAGE": {
+    // 工作目录根路径
+    // 存储上传的视频和重建结果
+    "WORK_DIRECTORY": "./output/result",
+    // SQLite 数据库文件路径
+    // 存储已完成和失败的任务记录
+    "DATABASE_PATH": "./output/tasks.db"
+  },
+
+  // 帧提取参数配置
+  "FRAME_EXTRACTION": {
+    // 帧提取比例 (0-1)
+    "ratio": 0.2,
+    // 最小帧间隔
+    "min_buffer": 3,
+    // 缩放因子 (1=原尺寸, 2=长宽各缩小为1/2)
+    "resize_factor": 1
+  },
+
+  // LichtFeld Studio 训练参数配置
+  "LICHTFELD_PARAMS": {
+    // 训练迭代次数
+    "iterations": 10000,
+    // 最大高斯点数
+    "max_cap": 500000,
+    // 无头模式（无 GUI）
+    "headless": true,
+    // 启用 PPISP
+    "ppisp": true,
+    // 启用 MIP 过滤
+    "enable_mip": true
+  }
+}

@@ -1,0 +1,4 @@
+.venv/
+.kiro/
+node_modules/
+config.jsonc
