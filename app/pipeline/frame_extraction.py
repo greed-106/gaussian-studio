@@ -20,11 +20,173 @@ from multiprocessing import cpu_count
 import cv2
 from tqdm import tqdm
 
-from sharp_frames.selection_methods import select_best_n_frames
-
 # Sharpness 计算权重常量
 BEST_N_SHARPNESS_WEIGHT = 0.7
 BEST_N_DISTRIBUTION_WEIGHT = 0.3
+
+
+# ============================================================================
+# BestN 算法实现 (从 sharp-frames 集成)
+# ============================================================================
+
+def _is_gap_sufficient(frame_index: int, selected_indices: set, min_gap: int) -> bool:
+    """检查帧索引是否与已选择的帧保持最小间隔"""
+    if not selected_indices:
+        return True
+    return all(abs(frame_index - selected_index) >= min_gap for selected_index in selected_indices)
+
+
+def _calculate_distribution_score(
+    frame_index: int,
+    total_frames: int,
+    selected_indices: set,
+    min_gap: int,
+    distribution_weight: float
+) -> float:
+    """计算帧的分布评分"""
+    # 计算与最近已选帧的距离
+    nearest_selected_distance = min_gap
+    if selected_indices:
+        nearest_selected_distance = min(abs(frame_index - sel_idx) for sel_idx in selected_indices)
+
+    # 归一化距离评分
+    distance_score = min(1.0, nearest_selected_distance / min_gap) if min_gap > 0 else 1.0
+
+    # 计算理想位置评分
+    num_selected_or_one = max(len(selected_indices), 1)
+    if total_frames <= 0 or num_selected_or_one <= 0:
+        position_score = 1.0
+    else:
+        segment_size = total_frames / num_selected_or_one
+        if segment_size <= 0:
+            position_score = 1.0
+        else:
+            ideal_position = round(frame_index / segment_size) * segment_size
+            dist_from_ideal = abs(frame_index - ideal_position)
+            position_score = max(0.0, 1.0 - (dist_from_ideal / (segment_size / 2))) if segment_size > 0 else 1.0
+
+    return (distance_score * distribution_weight) + (position_score * (1.0 - distribution_weight))
+
+
+def _select_initial_segments(
+    frames: List[Dict[str, Any]],
+    n: int,
+    min_gap: int,
+    progress_bar: tqdm
+) -> tuple:
+    """第一阶段：从初始分段中选择最佳帧"""
+    selected_frames = []
+    selected_indices = set()
+    
+    if n <= 0 or not frames:
+        return selected_frames, selected_indices
+
+    segment_size = max(1, len(frames) // n)
+    num_segments = (len(frames) + segment_size - 1) // segment_size
+
+    for i in range(num_segments):
+        if len(selected_frames) >= n:
+            break
+
+        segment_start = i * segment_size
+        segment_end = min(segment_start + segment_size, len(frames))
+        segment = frames[segment_start:segment_end]
+
+        if not segment:
+            continue
+
+        # 找到分段中满足最小间隔的有效帧
+        valid_frames = [
+            frame for frame in segment
+            if _is_gap_sufficient(frame["index"], selected_indices, min_gap)
+        ]
+
+        if valid_frames:
+            best_frame = max(valid_frames, key=lambda f: f.get("sharpnessScore", 0))
+            selected_frames.append(best_frame)
+            selected_indices.add(best_frame["index"])
+            progress_bar.update(1)
+
+    return selected_frames, selected_indices
+
+
+def _fill_remaining_slots(
+    frames: List[Dict[str, Any]],
+    n: int,
+    min_gap: int,
+    selected_frames: List[Dict[str, Any]],
+    selected_indices: set,
+    progress_bar: tqdm,
+    sharpness_weight: float,
+    distribution_weight: float
+):
+    """第二阶段：使用综合评分填充剩余槽位"""
+    current_selected_indices = set(selected_indices)
+
+    while len(selected_frames) < n:
+        best_candidate = None
+        best_composite_score = -1
+
+        potential_candidates = [f for f in frames if f["index"] not in current_selected_indices]
+
+        if not potential_candidates:
+            break
+
+        for frame in potential_candidates:
+            frame_index = frame["index"]
+
+            if not _is_gap_sufficient(frame_index, current_selected_indices, min_gap):
+                continue
+
+            distribution_score = _calculate_distribution_score(
+                frame_index, len(frames), current_selected_indices, min_gap, distribution_weight
+            )
+            sharpness_score = frame.get("sharpnessScore", 0)
+
+            composite_score = (
+                (sharpness_score * sharpness_weight) +
+                (distribution_score * distribution_weight)
+            )
+
+            if composite_score > best_composite_score:
+                best_composite_score = composite_score
+                best_candidate = frame
+
+        if best_candidate:
+            selected_frames.append(best_candidate)
+            current_selected_indices.add(best_candidate["index"])
+            progress_bar.update(1)
+        else:
+            break
+
+
+def select_best_n_frames(
+    frames: List[Dict[str, Any]],
+    num_frames: int,
+    min_buffer: int,
+    sharpness_weight: float,
+    distribution_weight: float
+) -> List[Dict[str, Any]]:
+    """使用 BestN 方法选择最佳帧"""
+    if not frames:
+        return []
+
+    n = min(num_frames, len(frames))
+    min_gap = min_buffer
+
+    with tqdm(total=n, desc="Selecting frames (best-n)") as progress_bar:
+        selected_frames, selected_indices = _select_initial_segments(
+            frames, n, min_gap, progress_bar
+        )
+
+        if len(selected_frames) < n:
+            _fill_remaining_slots(
+                frames, n, min_gap, selected_frames, selected_indices, progress_bar,
+                sharpness_weight, distribution_weight
+            )
+
+    progress_bar.n = len(selected_frames)
+    return sorted(selected_frames, key=lambda f: f["index"])
 
 
 def get_video_info(video_path: Union[str, Path]) -> Dict[str, Any]:
