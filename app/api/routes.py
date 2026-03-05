@@ -40,7 +40,7 @@ class BatchStatusRequest(BaseModel):
 
 
 class BatchStatusResponse(BaseModel):
-    results: dict
+    results: List[TaskStatusResponse]
 
 
 class UploadResponse(BaseModel):
@@ -158,37 +158,37 @@ async def get_batch_status(request: BatchStatusRequest):
         request: List of task IDs
         
     Returns:
-        Dictionary mapping task IDs to their status
+        List of task status information
     """
-    results = {}
+    results = []
     
     for task_id in request.task_ids:
         # Check in queue
         task_dict = queue_manager.get_task(task_id)
         if task_dict:
-            results[task_id] = {
-                "task_id": task_id,
-                "status": task_dict["status"],
-                "exists": True
-            }
+            results.append(TaskStatusResponse(
+                task_id=task_id,
+                status=task_dict["status"],
+                exists=True
+            ))
             continue
         
         # Check in database
         db_record = await db.get_task_history(task_id)
         if db_record:
-            results[task_id] = {
-                "task_id": task_id,
-                "status": db_record["status"],
-                "exists": True
-            }
+            results.append(TaskStatusResponse(
+                task_id=task_id,
+                status=db_record["status"],
+                exists=True
+            ))
             continue
         
         # Not found
-        results[task_id] = {
-            "task_id": task_id,
-            "status": "not_found",
-            "exists": False
-        }
+        results.append(TaskStatusResponse(
+            task_id=task_id,
+            status="not_found",
+            exists=False
+        ))
     
     return BatchStatusResponse(results=results)
 

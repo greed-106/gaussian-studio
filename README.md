@@ -110,10 +110,10 @@ Content-Type: application/json
 
 响应：
 {
-  "results": {
-    "uuid-1": {"task_id": "uuid-1", "status": "...", "exists": true},
-    "uuid-2": {"task_id": "uuid-2", "status": "...", "exists": true}
-  }
+  "results": [
+    {"task_id": "uuid-1", "status": "...", "exists": true},
+    {"task_id": "uuid-2", "status": "...", "exists": true}
+  ]
 }
 ```
 
