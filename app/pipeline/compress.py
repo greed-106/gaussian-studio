@@ -84,7 +84,7 @@ def compress_splat(
 
             # 验证输出文件
             if output_file.exists():
-                print(f"[SUCCESS] Output file: {output_file}")
+                # print(f"[SUCCESS] Output file: {output_file}")
                 return {
                     "success": True,
                     "input_path": str(input_file),
