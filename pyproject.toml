@@ -19,6 +19,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.135.1",
     "opencv-python>=4.5.0",
+    "python-multipart>=0.0.22",
     "tqdm>=4.60.0",
+    "uvicorn>=0.41.0",
 ]

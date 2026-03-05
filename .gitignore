@@ -4,3 +4,6 @@ node_modules/
 config.jsonc
 output/
 *.pyc
+__pycache__/
+*.db
+*.log
