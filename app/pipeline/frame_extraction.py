@@ -165,7 +165,8 @@ def select_best_n_frames(
     num_frames: int,
     min_buffer: int,
     sharpness_weight: float,
-    distribution_weight: float
+    distribution_weight: float,
+    silent: bool = False
 ) -> List[Dict[str, Any]]:
     """使用 BestN 方法选择最佳帧"""
     if not frames:
@@ -174,7 +175,7 @@ def select_best_n_frames(
     n = min(num_frames, len(frames))
     min_gap = min_buffer
 
-    with tqdm(total=n, desc="Selecting frames (best-n)") as progress_bar:
+    with tqdm(total=n, desc="Selecting frames (best-n)", disable=silent) as progress_bar:
         selected_frames, selected_indices = _select_initial_segments(
             frames, n, min_gap, progress_bar
         )
@@ -213,6 +214,7 @@ def _extract_frames_ffmpeg(
     output_format: str,
     ffmpeg_exe: Path,
     log: Callable[[str], None],
+    log_file: Optional[Path] = None,
 ) -> int:
     """使用 FFmpeg 提取所有帧到临时目录，返回提取的帧数"""
     output_pattern = str(temp_dir / f"frame_%05d.{output_format}")
@@ -235,10 +237,17 @@ def _extract_frames_ffmpeg(
 
     cmd.append(output_pattern)
 
-    log(f">> FFmpeg: {' '.join(cmd)}")
-
     try:
-        subprocess.run(cmd, check=True, text=True)
+        # 如果指定了日志文件，重定向输出
+        if log_file:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"Command: {' '.join(cmd)}\n")
+                f.write(f"{'='*80}\n\n")
+                subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.STDOUT, text=True)
+        else:
+            subprocess.run(cmd, check=True, text=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"FFmpeg failed with exit code {e.returncode}") from e
 
@@ -248,7 +257,7 @@ def _extract_frames_ffmpeg(
 
 
 def _calculate_sharpness_scores(
-    frame_paths: List[str], log: Callable[[str], None]
+    frame_paths: List[str], log: Callable[[str], None], silent: bool = False
 ) -> List[Dict[str, Any]]:
     """计算所有帧的锐度评分"""
     frames_data = []
@@ -266,11 +275,12 @@ def _calculate_sharpness_scores(
         )
         return float(cv2.Laplacian(img_half, cv2.CV_64F).var())
 
-    log("Calculating sharpness scores...")
+    if not silent:
+        log("Calculating sharpness scores...")
 
     import concurrent.futures
 
-    with tqdm(total=len(frame_paths), desc="Scoring frames") as progress_bar:
+    with tqdm(total=len(frame_paths), desc="Scoring frames", disable=silent) as progress_bar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = {
                 executor.submit(process_image, path): (idx, path)
@@ -290,7 +300,8 @@ def _calculate_sharpness_scores(
                         }
                     )
                 except Exception as e:
-                    log(f"Warning: {str(e)}")
+                    if not silent:
+                        log(f"Warning: {str(e)}")
                 progress_bar.update(1)
 
     frames_data.sort(key=lambda x: x["index"])
@@ -302,9 +313,11 @@ def _select_best_n_frames(
     num_frames: int,
     min_buffer: int,
     log: Callable[[str], None],
+    silent: bool = False,
 ) -> List[Dict[str, Any]]:
     """使用 best-n 方法筛选帧"""
-    log(f"Selecting best {num_frames} frames...")
+    if not silent:
+        log(f"Selecting best {num_frames} frames...")
 
     selected = select_best_n_frames(
         frames_data,
@@ -312,9 +325,11 @@ def _select_best_n_frames(
         min_buffer,
         BEST_N_SHARPNESS_WEIGHT,
         BEST_N_DISTRIBUTION_WEIGHT,
+        silent=silent
     )
 
-    log(f"Selected {len(selected)} frames")
+    if not silent:
+        log(f"Selected {len(selected)} frames")
     return selected
 
 
@@ -323,13 +338,15 @@ def _save_selected_frames(
     output_dir: Path,
     output_format: str,
     log: Callable[[str], None],
+    silent: bool = False,
 ) -> int:
     """保存选中的帧到输出目录"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    log(f"Saving {len(selected_frames)} frames to: {output_dir}")
+    if not silent:
+        log(f"Saving {len(selected_frames)} frames to: {output_dir}")
 
-    with tqdm(total=len(selected_frames), desc="Saving frames") as progress_bar:
+    with tqdm(total=len(selected_frames), desc="Saving frames", disable=silent) as progress_bar:
         for i, frame_data in enumerate(selected_frames):
             src_path = frame_data["path"]
             filename = f"frame_{i + 1:05d}.{output_format}"
@@ -338,7 +355,8 @@ def _save_selected_frames(
             try:
                 shutil.copy2(src_path, dst_path)
             except Exception as e:
-                log(f"Error saving {src_path}: {e}")
+                if not silent:
+                    log(f"Error saving {src_path}: {e}")
                 continue
 
             progress_bar.update(1)
@@ -374,6 +392,7 @@ def extract_frames(
     output_format: str = "jpg",
     keep_temp: bool = False,
     log: Optional[Callable[[str], None]] = None,
+    log_file: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """
     从视频中提取并筛选帧。
@@ -392,6 +411,7 @@ def extract_frames(
         output_format: 输出格式（jpg 或 png）
         keep_temp: 是否保留临时目录（调试用）
         log: 日志输出函数
+        log_file: 日志文件路径
 
     Returns:
         包含提取结果的字典
@@ -400,6 +420,7 @@ def extract_frames(
     output = Path(output_dir).resolve()
     exe = Path(ffmpeg_exe).resolve()
     _log = log or print
+    _log_file = Path(log_file) if log_file else None
 
     if not video.exists():
         raise FileNotFoundError(f"Video file not found: {video}")
@@ -434,7 +455,7 @@ def extract_frames(
 
         _log("\n=== Phase 1: Extracting all frames with FFmpeg ===")
         extracted_count = _extract_frames_ffmpeg(
-            video, temp_dir, resize_factor, output_format, exe, _log
+            video, temp_dir, resize_factor, output_format, exe, _log, _log_file
         )
         _log(f"Extracted {extracted_count} frames")
 
@@ -449,18 +470,18 @@ def extract_frames(
 
         # 阶段 2：计算锐度并筛选
         _log("\n=== Phase 2: Sharpness analysis and selection ===")
-        frames_data = _calculate_sharpness_scores(frame_paths, _log)
+        frames_data = _calculate_sharpness_scores(frame_paths, _log, silent=bool(_log_file))
 
         if not frames_data:
             raise RuntimeError("No frames could be scored")
 
         selected_frames = _select_best_n_frames(
-            frames_data, num_frames, min_buffer, _log
+            frames_data, num_frames, min_buffer, _log, silent=bool(_log_file)
         )
 
         # 阶段 3：保存选中的帧
         _log("\n=== Phase 3: Saving selected frames ===")
-        saved_count = _save_selected_frames(selected_frames, output, output_format, _log)
+        saved_count = _save_selected_frames(selected_frames, output, output_format, _log, silent=bool(_log_file))
 
         _log(f"\n[SUCCESS] Saved {saved_count} frames to: {output}")
 

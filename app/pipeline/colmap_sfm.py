@@ -5,11 +5,21 @@ from pathlib import Path
 from argparse import ArgumentParser
 from typing import List, Optional, Callable, Union
 
-def run_cmd(cmd: List[str], cwd: Optional[Path] = None):
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, log_file: Optional[Path] = None, silent: bool = False):
     """运行命令，失败则抛出异常。支持空格路径。"""
-    print(f">> {' '.join(map(str, cmd))}")
-    # check=True 会在非零退出码时自动抛出 CalledProcessError
-    subprocess.run(cmd, cwd=cwd, check=True)
+    if not silent:
+        print(f">> {' '.join(map(str, cmd))}")
+    
+    # 如果指定了日志文件，重定向输出
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"Command: {' '.join(map(str, cmd))}\n")
+            f.write(f"{'='*80}\n\n")
+            subprocess.run(cmd, cwd=cwd, check=True, stdout=f, stderr=subprocess.STDOUT)
+    else:
+        subprocess.run(cmd, cwd=cwd, check=True)
 
 def run_colmap_sfm(
     source: Union[str, Path],
@@ -17,7 +27,8 @@ def run_colmap_sfm(
     no_gpu: bool = False,
     skip: bool = False,
     camera: str = "PINHOLE",
-    log: Optional[Callable[[str], None]] = None
+    log: Optional[Callable[[str], None]] = None,
+    log_file: Optional[Union[str, Path]] = None
 ):
     """执行 SfM 流程。假设图像在 <source>/images 且无畸变。"""
     
@@ -35,6 +46,7 @@ def run_colmap_sfm(
         raise FileNotFoundError("Colmap executable not found. Please specify --colmap_executable.")
     
     _log = log or print
+    _log_file = Path(log_file) if log_file else None
     _log(f"Start SfM: {src}")
 
     if not skip:
@@ -43,15 +55,15 @@ def run_colmap_sfm(
         # 1. Feature Extraction
         run_cmd([exe, "feature_extractor", "--database_path", str(db), "--image_path", str(imgs),
                  "--ImageReader.single_camera", "1", "--ImageReader.camera_model", camera,
-                 "--SiftExtraction.use_gpu", "0" if no_gpu else "1"], cwd=src)
+                 "--SiftExtraction.use_gpu", "0" if no_gpu else "1"], cwd=src, log_file=_log_file, silent=True)
         
         # 2. Matching
         run_cmd([exe, "exhaustive_matcher", "--database_path", str(db),
-                 "--SiftMatching.use_gpu", "0" if no_gpu else "1"], cwd=src)
+                 "--SiftMatching.use_gpu", "0" if no_gpu else "1"], cwd=src, log_file=_log_file, silent=True)
         
         # 3. Mapper
         run_cmd([exe, "mapper", "--database_path", str(db), "--image_path", str(imgs),
-                 "--output_path", str(sparse), "--Mapper.ba_global_function_tolerance", "0.000001"], cwd=src)
+                 "--output_path", str(sparse), "--Mapper.ba_global_function_tolerance", "0.000001"], cwd=src, log_file=_log_file, silent=True)
     
     # 4. Normalize Output (Ensure '0' exists)
     if not sparse.exists(): raise RuntimeError("No sparse output generated.")

@@ -3,14 +3,17 @@ Worker processes for each pipeline stage.
 """
 import signal
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
 from multiprocessing import Queue
+from contextlib import redirect_stdout, redirect_stderr
 
 from app.task_queue import TaskStatus, TaskQueueManager
 from app.database import TaskDatabase
 from app.pipeline import extract_frames, run_colmap_sfm, run_lichtfeld_training, compress_splat
+from app.logger import WorkerLogger
 
 
 # Global flag for graceful shutdown
@@ -20,7 +23,7 @@ shutdown_flag = False
 def signal_handler(signum, frame):
     """Handle Ctrl+C for graceful shutdown."""
     global shutdown_flag
-    print(f"\n[Worker] Received signal {signum}, shutting down gracefully...")
+    WorkerLogger.log("Main", f"Received signal {signum}, shutting down gracefully...")
     shutdown_flag = True
 
 
@@ -38,7 +41,7 @@ def preprocessing_worker(
     from app.task_queue import TaskStatus
     db = TaskDatabase(db_path)
     
-    print("[Preprocessing Worker] Started")
+    WorkerLogger.log_worker_start("Preprocessing")
     
     while not shutdown_flag:
         try:
@@ -49,7 +52,7 @@ def preprocessing_worker(
             if not task_dict:
                 continue
             
-            print(f"[Preprocessing] Processing task: {task_id}")
+            WorkerLogger.log_task_begin("Preprocessing", task_id)
             db.update_active_task_status(task_id, TaskStatus.PREPROCESSING)
             
             try:
@@ -57,27 +60,33 @@ def preprocessing_worker(
                 work_dir = Path(task_dict["work_dir"])
                 video_path = task_dict["video_path"]
                 output_dir = work_dir / "images"
+                log_file = work_dir / "preprocessing.log"
                 
                 frame_config = config["FRAME_EXTRACTION"]
-                result = extract_frames(
-                    video_path=video_path,
-                    output_dir=output_dir,
-                    ffmpeg_exe=config["BINARIES"]["FFMPEG_PATH"],
-                    ratio=frame_config["ratio"],
-                    min_buffer=frame_config["min_buffer"],
-                    resize_factor=frame_config["resize_factor"],
-                    log=lambda msg: print(f"[Preprocessing] {msg}")
-                )
+                
+                # Redirect stdout/stderr to log file
+                with open(log_file, "a", encoding="utf-8") as f:
+                    with redirect_stdout(f), redirect_stderr(f):
+                        result = extract_frames(
+                            video_path=video_path,
+                            output_dir=output_dir,
+                            ffmpeg_exe=config["BINARIES"]["FFMPEG_PATH"],
+                            ratio=frame_config["ratio"],
+                            min_buffer=frame_config["min_buffer"],
+                            resize_factor=frame_config["resize_factor"],
+                            log=lambda msg: print(msg),  # Will be redirected to file
+                            log_file=log_file
+                        )
                 
                 if not result.get("success"):
                     raise RuntimeError(result.get("error", "Frame extraction failed"))
                 
                 # Move to next stage
                 sfm_queue.put(task_id)
-                print(f"[Preprocessing] Task {task_id} completed")
+                WorkerLogger.log_task_finish("Preprocessing", task_id)
                 
             except Exception as e:
-                print(f"[Preprocessing] Task {task_id} failed: {e}")
+                WorkerLogger.log_task_failed("Preprocessing", task_id, str(e))
                 db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
                 # Will be saved to DB by main process
                 
@@ -85,7 +94,7 @@ def preprocessing_worker(
             # Timeout or other errors, continue
             continue
     
-    print("[Preprocessing Worker] Stopped")
+    WorkerLogger.log("Preprocessing", "Worker Stopped")
 
 
 def sfm_worker(
@@ -102,7 +111,7 @@ def sfm_worker(
     from app.task_queue import TaskStatus
     db = TaskDatabase(db_path)
     
-    print("[SfM Worker] Started")
+    WorkerLogger.log_worker_start("SfM")
     
     while not shutdown_flag:
         try:
@@ -112,32 +121,34 @@ def sfm_worker(
             if not task_dict:
                 continue
             
-            print(f"[SfM] Processing task: {task_id}")
+            WorkerLogger.log_task_begin("SfM", task_id)
             db.update_active_task_status(task_id, TaskStatus.SFM)
             
             try:
                 work_dir = Path(task_dict["work_dir"])
+                log_file = work_dir / "sfm.log"
                 
                 result = run_colmap_sfm(
                     source=work_dir,
                     colmap_exe=config["BINARIES"]["COLMAP_PATH"],
-                    log=lambda msg: print(f"[SfM] {msg}")
+                    log=lambda msg: None,  # Suppress console output
+                    log_file=log_file
                 )
                 
                 if not result.get("success"):
                     raise RuntimeError("SfM failed")
                 
                 reconstruction_queue.put(task_id)
-                print(f"[SfM] Task {task_id} completed")
+                WorkerLogger.log_task_finish("SfM", task_id)
                 
             except Exception as e:
-                print(f"[SfM] Task {task_id} failed: {e}")
+                WorkerLogger.log_task_failed("SfM", task_id, str(e))
                 db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
                 
         except Exception:
             continue
     
-    print("[SfM Worker] Stopped")
+    WorkerLogger.log("SfM", "Worker Stopped")
 
 
 def reconstruction_worker(
@@ -154,7 +165,7 @@ def reconstruction_worker(
     from app.task_queue import TaskStatus
     db = TaskDatabase(db_path)
     
-    print("[Reconstruction Worker] Started")
+    WorkerLogger.log_worker_start("Reconstruction")
     
     while not shutdown_flag:
         try:
@@ -164,12 +175,13 @@ def reconstruction_worker(
             if not task_dict:
                 continue
             
-            print(f"[Reconstruction] Processing task: {task_id}")
+            WorkerLogger.log_task_begin("Reconstruction", task_id)
             db.update_active_task_status(task_id, TaskStatus.RECONSTRUCTION)
             
             try:
                 work_dir = Path(task_dict["work_dir"])
                 lf_params = config["LICHTFELD_PARAMS"]
+                log_file = work_dir / "reconstruction.log"
                 
                 result = run_lichtfeld_training(
                     executable=config["BINARIES"]["LICHTFELD_PATH"],
@@ -179,23 +191,24 @@ def reconstruction_worker(
                     max_cap=lf_params["max_cap"],
                     headless=lf_params["headless"],
                     ppisp=lf_params["ppisp"],
-                    enable_mip=lf_params["enable_mip"]
+                    enable_mip=lf_params["enable_mip"],
+                    log_file=log_file
                 )
                 
                 if not result.get("success"):
                     raise RuntimeError("Reconstruction failed")
                 
                 compress_queue.put(task_id)
-                print(f"[Reconstruction] Task {task_id} completed")
+                WorkerLogger.log_task_finish("Reconstruction", task_id)
                 
             except Exception as e:
-                print(f"[Reconstruction] Task {task_id} failed: {e}")
+                WorkerLogger.log_task_failed("Reconstruction", task_id, str(e))
                 db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
                 
         except Exception:
             continue
     
-    print("[Reconstruction Worker] Stopped")
+    WorkerLogger.log("Reconstruction", "Worker Stopped")
 
 
 def compress_worker(
@@ -212,7 +225,7 @@ def compress_worker(
     from app.task_queue import TaskStatus
     db = TaskDatabase(db_path)
     
-    print("[Compress Worker] Started")
+    WorkerLogger.log_worker_start("Compress")
     
     while not shutdown_flag:
         try:
@@ -222,11 +235,12 @@ def compress_worker(
             if not task_dict:
                 continue
             
-            print(f"[Compress] Processing task: {task_id}")
+            WorkerLogger.log_task_begin("Compress", task_id)
             db.update_active_task_status(task_id, TaskStatus.COMPRESS)
             
             try:
                 work_dir = Path(task_dict["work_dir"])
+                log_file = work_dir / "compress.log"
                 
                 # Find the latest splat_*.ply file
                 ply_files = sorted(work_dir.glob("splat_*.ply"))
@@ -239,14 +253,15 @@ def compress_worker(
                 
                 result = compress_splat(
                     input_path=ply_file,
-                    output_path=sog_file
+                    output_path=sog_file,
+                    log_file=log_file
                 )
                 
                 if not result.get("success"):
                     raise RuntimeError("Compression failed")
                 
                 # Task completed successfully
-                print(f"[Compress] Task {task_id} completed")
+                WorkerLogger.log_task_finish("Compress", task_id)
                 
                 # Save to history
                 created_at = datetime.fromisoformat(task_dict["created_at"])
@@ -261,7 +276,7 @@ def compress_worker(
                 db.remove_active_task(task_id)
                 
             except Exception as e:
-                print(f"[Compress] Task {task_id} failed: {e}")
+                WorkerLogger.log_task_failed("Compress", task_id, str(e))
                 
                 # Save failure to history
                 created_at = datetime.fromisoformat(task_dict["created_at"])
@@ -277,4 +292,4 @@ def compress_worker(
         except Exception:
             continue
     
-    print("[Compress Worker] Stopped")
+    WorkerLogger.log("Compress", "Worker Stopped")

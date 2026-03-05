@@ -25,7 +25,8 @@ def run_lichtfeld_training(
     ppisp: bool = False,               # Default: Disabled
     headless: bool = False,            # Default: Disabled (GUI enabled)
     mask_mode: Optional[str] = None,
-    max_width: Optional[int] = None
+    max_width: Optional[int] = None,
+    log_file: Optional[Union[str, Path]] = None
 ) -> Dict[str, Any]:
     """
     执行 LichtFeld Studio 训练。
@@ -45,6 +46,7 @@ def run_lichtfeld_training(
         headless: 无头模式 (默认 False)。
         mask_mode: 遮罩模式 (--mask-mode)。
         max_width: 最大图像宽度 (--max-width)。
+        log_file: 日志文件路径。
     """
     exe = Path(executable).resolve()
     data = Path(data_path).resolve()
@@ -87,10 +89,18 @@ def run_lichtfeld_training(
         cmd.append("--headless")
 
     # 4. 执行
-    print(f">> Running: {' '.join(cmd)}")
     try:
-        # cwd 设为 exe 所在目录，确保相对路径资源加载正常
-        subprocess.run(cmd, cwd=exe.parent, check=True)
+        # 如果指定了日志文件，重定向输出
+        if log_file:
+            log_path = Path(log_file)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"Command: {' '.join(cmd)}\n")
+                f.write(f"{'='*80}\n\n")
+                subprocess.run(cmd, cwd=exe.parent, check=True, stdout=f, stderr=subprocess.STDOUT)
+        else:
+            subprocess.run(cmd, cwd=exe.parent, check=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Training failed with exit code {e.returncode}") from e
     except FileNotFoundError:

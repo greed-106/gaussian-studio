@@ -102,6 +102,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "colorama" },
     { name = "fastapi" },
     { name = "opencv-python" },
     { name = "python-multipart" },
@@ -112,6 +113,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "colorama", specifier = ">=0.4.6" },
     { name = "fastapi", specifier = ">=0.135.1" },
     { name = "opencv-python", specifier = ">=4.5.0" },
     { name = "python-multipart", specifier = ">=0.0.22" },

@@ -12,7 +12,7 @@ import shutil
 import time
 from pathlib import Path
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional
 
 
 def get_npx_command() -> str:
@@ -30,6 +30,7 @@ def compress_splat(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     max_retries: int = 3,
+    log_file: Optional[Union[str, Path]] = None
 ) -> Dict[str, Any]:
     """
     执行 splat-transform 转换，将 PLY 转换为 SOG 格式。
@@ -38,6 +39,7 @@ def compress_splat(
         input_path: 输入的 PLY 文件路径
         output_path: 输出的 SOG 文件路径
         max_retries: 最大重试次数（默认 3）
+        log_file: 日志文件路径
 
     Returns:
         包含转换结果的字典
@@ -67,10 +69,18 @@ def compress_splat(
 
     last_error = None
     for attempt in range(1, max_retries + 1):
-        print(f">> Running (attempt {attempt}/{max_retries}): {' '.join(cmd)}")
-
         try:
-            subprocess.run(cmd, check=True)
+            # 如果指定了日志文件，重定向输出
+            if log_file:
+                log_path = Path(log_file)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n{'='*80}\n")
+                    f.write(f"Command (attempt {attempt}): {' '.join(cmd)}\n")
+                    f.write(f"{'='*80}\n\n")
+                    subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.STDOUT)
+            else:
+                subprocess.run(cmd, check=True)
 
             # 验证输出文件
             if output_file.exists():

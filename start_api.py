@@ -18,6 +18,7 @@ from app.config import get_config
 from app.database import TaskDatabase
 from app.task_queue import TaskQueueManager
 from app.api.routes import router, init_routes
+from app.logger import WorkerLogger
 from app.workers import (
     preprocessing_worker,
     sfm_worker,
@@ -32,7 +33,7 @@ workers = []
 
 def signal_handler(signum, frame):
     """Handle Ctrl+C for graceful shutdown."""
-    print("\n[Main] Shutting down...")
+    WorkerLogger.log("Main", "Shutting down...")
     for worker in workers:
         if worker.is_alive():
             worker.terminate()
@@ -65,10 +66,10 @@ def create_app() -> FastAPI:
 
 async def startup_event(app: FastAPI, config: dict, db: TaskDatabase, queue_manager: TaskQueueManager):
     """Initialize database and start worker processes."""
-    print("[Main] Initializing database...")
+    WorkerLogger.log("Main", "Initializing database...")
     await db.init_db()
     
-    print("[Main] Starting worker processes...")
+    WorkerLogger.log("Main", "Starting worker processes...")
     
     db_path = config["STORAGE"]["DATABASE_PATH"]
     
@@ -119,7 +120,7 @@ async def startup_event(app: FastAPI, config: dict, db: TaskDatabase, queue_mana
     for worker in workers:
         worker.start()
     
-    print(f"[Main] Started {len(workers)} worker processes")
+    WorkerLogger.log("Main", f"Started {len(workers)} worker processes")
 
 
 def main():
@@ -133,7 +134,7 @@ def main():
             print(f"Invalid port: {sys.argv[1]}, using default 4000")
     
     # Load configuration
-    print("[Main] Loading configuration...")
+    WorkerLogger.log("Main", "Loading configuration...")
     config = get_config()
     
     # Override port from config if specified
@@ -158,10 +159,10 @@ def main():
     import asyncio
     asyncio.run(startup_event(app, config, db, queue_manager))
     
-    print(f"\n[Main] Starting server on http://localhost:{port}")
-    print(f"[Main] API docs: http://localhost:{port}/docs")
-    print(f"[Main] ReDoc: http://localhost:{port}/redoc")
-    print("[Main] Press Ctrl+C to stop\n")
+    WorkerLogger.log("Main", f"Starting server on http://localhost:{port}")
+    WorkerLogger.log("Main", f"API docs: http://localhost:{port}/docs")
+    WorkerLogger.log("Main", f"ReDoc: http://localhost:{port}/redoc")
+    WorkerLogger.log("Main", "Press Ctrl+C to stop")
     
     # Run server
     uvicorn.run(
