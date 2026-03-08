@@ -13,6 +13,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from app.task_queue import TaskStatus, TaskQueueManager
 from app.database import TaskDatabase
 from app.pipeline import extract_frames, run_colmap_sfm, run_lichtfeld_training, compress_splat
+from app.pipeline.colmap_sfm import extract_camera_parameters
 from app.logger import WorkerLogger
 
 
@@ -137,6 +138,15 @@ def sfm_worker(
                 
                 if not result.get("success"):
                     raise RuntimeError("SfM failed")
+                
+                # Extract camera parameters
+                sparse_dir = work_dir / "sparse" / "0"
+                camera_params = extract_camera_parameters(sparse_dir)
+                if camera_params:
+                    intrinsic_matrix, extrinsic_matrix = camera_params
+                    db.save_metadata_sync(task_id, intrinsic_matrix, extrinsic_matrix)
+                else:
+                    WorkerLogger.log("SfM", f"Warning: Could not extract camera parameters for task {task_id[:8]}")
                 
                 reconstruction_queue.put(task_id)
                 WorkerLogger.log_task_finish("SfM", task_id)

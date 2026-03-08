@@ -39,6 +39,15 @@ class TaskDatabase:
                     completed_at TEXT NOT NULL
                 )
             """)
+            
+            # Camera metadata (intrinsic and extrinsic parameters)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS metadata (
+                    task_id TEXT PRIMARY KEY,
+                    intrinsic_matrix TEXT NOT NULL,
+                    extrinsic_matrix TEXT NOT NULL
+                )
+            """)
             conn.commit()
         finally:
             conn.close()
@@ -149,6 +158,41 @@ class TaskDatabase:
             row = cursor.fetchone()
             if row:
                 return dict(row)
+            return None
+        finally:
+            conn.close()
+    
+    # === Camera Metadata ===
+    
+    def save_metadata_sync(self, task_id: str, intrinsic_matrix: list, extrinsic_matrix: list):
+        """Save camera metadata (synchronous)."""
+        import json
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (task_id, intrinsic_matrix, extrinsic_matrix) VALUES (?, ?, ?)",
+                (task_id, json.dumps(intrinsic_matrix), json.dumps(extrinsic_matrix))
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    
+    async def get_metadata(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Get camera metadata (async)."""
+        import json
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.execute(
+                "SELECT intrinsic_matrix, extrinsic_matrix FROM metadata WHERE task_id = ?",
+                (task_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "task_id": task_id,
+                    "intrinsic_matrix": json.loads(row[0]),
+                    "extrinsic_matrix": json.loads(row[1])
+                }
             return None
         finally:
             conn.close()
