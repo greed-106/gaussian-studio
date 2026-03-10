@@ -259,11 +259,24 @@ def run_colmap_sfm(
     log: Optional[Callable[[str], None]] = None,
     log_file: Optional[Union[str, Path]] = None
 ):
-    """执行 SfM 流程。假设图像在 <source>/images 且无畸变。"""
+    """
+    执行 SfM 流程，使用 COLMAP 自动重建器。
+    
+    Args:
+        source: 工作目录路径，图像应在 <source>/images
+        colmap_exe: COLMAP 可执行文件路径
+        no_gpu: 是否禁用 GPU（当前未使用，自动重建器会自动检测）
+        skip: 是否跳过重建（用于测试）
+        camera: 相机模型（默认 PINHOLE）
+        log: 日志回调函数
+        log_file: 日志文件路径
+        
+    Returns:
+        包含成功状态、输出路径和文件列表的字典
+    """
     
     src = Path(source).resolve()
     imgs = src / "images"
-    db = src / "database.db"
     sparse = src / "sparse"
     
     if not imgs.exists():
@@ -279,38 +292,51 @@ def run_colmap_sfm(
     _log(f"Start SfM: {src}")
 
     if not skip:
-        sparse.mkdir(parents=True, exist_ok=True)
-        
-        # 1. Feature Extraction
-        run_cmd([exe, "feature_extractor", "--database_path", str(db), "--image_path", str(imgs),
-                 "--ImageReader.single_camera", "1", "--ImageReader.camera_model", camera,
-                 "--SiftExtraction.use_gpu", "0" if no_gpu else "1"], cwd=src, log_file=_log_file, silent=True)
-        
-        # 2. Matching
-        run_cmd([exe, "exhaustive_matcher", "--database_path", str(db),
-                 "--SiftMatching.use_gpu", "0" if no_gpu else "1"], cwd=src, log_file=_log_file, silent=True)
-        
-        # 3. Mapper
-        run_cmd([exe, "mapper", "--database_path", str(db), "--image_path", str(imgs),
-                 "--output_path", str(sparse), "--Mapper.ba_global_function_tolerance", "0.000001"], cwd=src, log_file=_log_file, silent=True)
+        # 使用 COLMAP 自动重建器
+        # 参数说明：
+        # --workspace_path: 工作目录
+        # --image_path: 图像目录
+        # --quality: 重建质量 (low, medium, high, extreme)
+        # --data_type: 数据类型 (video 表示视频帧序列)
+        # --single_camera: 使用单相机模型
+        # --sparse: 只进行稀疏重建
+        # --dense: 不进行稠密重建
+        # --camera_model: 相机模型
+        run_cmd([
+            exe, "automatic_reconstructor",
+            "--workspace_path", str(src),
+            "--image_path", str(imgs),
+            "--quality", "high",
+            "--data_type", "video",
+            "--single_camera", "true",
+            "--sparse", "true",
+            "--dense", "false",
+            "--camera_model", camera
+        ], cwd=src, log_file=_log_file, silent=True)
     
-    # 4. Normalize Output (Ensure '0' exists)
-    if not sparse.exists(): raise RuntimeError("No sparse output generated.")
+    # 验证输出
+    if not sparse.exists():
+        raise RuntimeError("No sparse output generated.")
     
     scenes = [d for d in sparse.iterdir() if d.is_dir()]
-    if not scenes: raise RuntimeError("No scenes generated.")
+    if not scenes:
+        raise RuntimeError("No scenes generated.")
     
+    # 确保输出目录名为 '0'
     target = sparse / "0"
     if not target.exists():
         _log(f"Renaming {scenes[0].name} -> 0")
         scenes[0].rename(target)
     
-    # Cleanup others
+    # 清理其他场景目录
     for s in sparse.iterdir():
-        if s.is_dir() and s.name != "0": shutil.rmtree(s)
+        if s.is_dir() and s.name != "0":
+            shutil.rmtree(s)
     
+    # 验证输出文件
     files = [f.name for f in target.iterdir() if f.is_file()]
-    if not files: raise RuntimeError("Output directory is empty.")
+    if not files:
+        raise RuntimeError("Output directory is empty.")
     
     _log(f"Done! Output: {target}")
     return {"success": True, "path": target, "files": files}
