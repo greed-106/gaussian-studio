@@ -65,7 +65,7 @@ class TaskQueueManager:
             video_path=task.video_path,
             work_dir=task.work_dir,
             status=task.status,
-            created_at=task.created_at
+            created_at=format_utc_time(task.created_at)
         )
         self.preprocessing_queue.put(task.task_id)
     

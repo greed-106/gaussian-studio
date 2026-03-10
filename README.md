@@ -91,6 +91,41 @@ Content-Type: multipart/form-data
 - task_id 必须唯一，如果已存在会返回 409 错误
 - 支持的视频格式：`.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`
 
+### 从对象存储创建任务
+
+```
+POST /tasks/from-oss
+Content-Type: application/json
+
+请求体：
+{
+  "task_id": "1234567890123456789",
+  "video_url": "https://your-storage.com/path/to/video.mp4"
+}
+
+响应：
+{
+  "task_id": "1234567890123456789",
+  "message": "Video downloaded and task created successfully",
+  "file_size": 12345678
+}
+
+错误响应：
+- 400: task_id 格式无效、视频下载失败或格式不支持
+- 409: task_id 已存在
+- 500: 服务器内部错误
+```
+
+说明：
+- 从对象存储服务（OSS）下载视频并创建重建任务
+- `video_url` 必须是可直接访问的视频文件 URL
+- task_id 规则与上传接口相同（雪花算法生成的唯一 ID）
+- 通过 URL 扩展名自动检测视频格式
+- 如果无法检测格式，默认使用 `.mp4`
+- 支持的视频格式与上传接口相同
+- 下载超时时间为 30 秒（连接超时）
+- 下载失败时会自动清理已创建的工作目录
+
 ### 查询单个任务状态
 
 ```
@@ -194,6 +229,38 @@ GET /tasks/{task_id}/metadata
   - 选取的是 image_id 最小的帧（通常是第一帧）的相机位姿
 - 元数据在 SfM 阶段完成后可用
 - 如果任务还在 waiting 或 preprocessing 阶段，会返回 400 错误
+
+### 上传任务到对象存储
+
+```
+POST /tasks/{task_id}/upload-to-oss
+Content-Type: application/json
+
+请求体：
+{
+  "upload_url": "https://your-storage.com/presigned-url"
+}
+
+响应：
+{
+  "message": "File uploaded successfully and local files cleaned up",
+  "file_size": 12345678
+}
+
+错误响应：
+- 400: 任务未完成或失败
+- 404: 任务不存在或 SOG 文件未找到
+- 500: 上传失败
+```
+
+说明：
+- 将已完成任务的 SOG 文件上传到对象存储服务（OSS）
+- `upload_url` 必须是客户端提供的预签名 URL（支持 PUT 请求）
+- 只有状态为 `finish` 的任务才能上传
+- 上传成功后返回文件大小（字节）
+- 使用 PUT 方法上传，Content-Type 为 `application/octet-stream`
+- 上传超时时间为 5 分钟
+- **上传成功后会自动删除任务的所有本地文件以释放磁盘空间**
 
 ## 任务状态说明
 
