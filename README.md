@@ -100,9 +100,14 @@ GET /status/{task_id}
 {
   "task_id": "1234567890123456789",
   "status": "waiting|preprocessing|sfm|reconstruction|compress|finish|failure",
-  "exists": true
+  "exists": true,
+  "completed_at": "2026-03-10T14:30:05Z"  // 仅当 status 为 finish 或 failure 时存在
 }
 ```
+
+说明：
+- `completed_at`: 任务完成时间（UTC 时间，ISO 8601 格式，如 `2026-03-10T14:30:05Z`），仅当任务状态为 `finish` 或 `failure` 时返回
+- 进行中的任务（waiting, preprocessing, sfm, reconstruction, compress）该字段为 `null`
 
 ### 批量查询任务状态
 
@@ -118,11 +123,25 @@ Content-Type: application/json
 响应：
 {
   "results": [
-    {"task_id": "1234567890123456789", "status": "...", "exists": true},
-    {"task_id": "1234567890123456790", "status": "...", "exists": true}
+    {
+      "task_id": "1234567890123456789",
+      "status": "finish",
+      "exists": true,
+      "completed_at": "2026-03-10T14:30:05Z"
+    },
+    {
+      "task_id": "1234567890123456790",
+      "status": "preprocessing",
+      "exists": true,
+      "completed_at": null
+    }
   ]
 }
 ```
+
+说明：
+- `completed_at`: 任务完成时间（UTC 时间，ISO 8601 格式，如 `2026-03-10T14:30:05Z`），仅当任务状态为 `finish` 或 `failure` 时返回
+- 进行中的任务该字段为 `null`
 
 ### 队列统计
 

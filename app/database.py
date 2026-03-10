@@ -58,13 +58,13 @@ class TaskDatabase:
     
     # === Active Tasks (Queue State) ===
     
-    def add_active_task(self, task_id: str, video_path: str, work_dir: str, status: str, created_at: datetime):
+    def add_active_task(self, task_id: str, video_path: str, work_dir: str, status: str, created_at: str):
         """Add a new active task."""
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
                 "INSERT INTO active_tasks (task_id, video_path, work_dir, status, created_at, error) VALUES (?, ?, ?, ?, ?, ?)",
-                (task_id, video_path, work_dir, status, created_at.isoformat(), None)
+                (task_id, video_path, work_dir, status, created_at, None)
             )
             conn.commit()
         finally:
@@ -137,13 +137,13 @@ class TaskDatabase:
     
     # === Task History (Completed/Failed) ===
     
-    def save_task_history_sync(self, task_id: str, status: str, created_at: datetime, completed_at: datetime):
+    def save_task_history_sync(self, task_id: str, status: str, created_at: str, completed_at: str):
         """Save a completed or failed task to history (synchronous)."""
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO task_history (task_id, status, created_at, completed_at) VALUES (?, ?, ?, ?)",
-                (task_id, status, created_at.isoformat(), completed_at.isoformat())
+                (task_id, status, created_at, completed_at)
             )
             conn.commit()
         finally:

@@ -33,6 +33,7 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: str
     exists: bool
+    completed_at: str | None = None  # ISO format timestamp for finished/failed tasks
 
 
 class BatchStatusRequest(BaseModel):
@@ -140,7 +141,7 @@ async def get_task_status(task_id: str):
         task_id: Task ID
         
     Returns:
-        Task status information
+        Task status information (includes completed_at for finished/failed tasks)
     """
     # Check in queue first
     task_dict = queue_manager.get_task(task_id)
@@ -148,7 +149,8 @@ async def get_task_status(task_id: str):
         return TaskStatusResponse(
             task_id=task_id,
             status=task_dict["status"],
-            exists=True
+            exists=True,
+            completed_at=None
         )
     
     # Check in database
@@ -157,14 +159,16 @@ async def get_task_status(task_id: str):
         return TaskStatusResponse(
             task_id=task_id,
             status=db_record["status"],
-            exists=True
+            exists=True,
+            completed_at=db_record.get("completed_at")
         )
     
     # Task not found
     return TaskStatusResponse(
         task_id=task_id,
         status="not_found",
-        exists=False
+        exists=False,
+        completed_at=None
     )
 
 
@@ -177,7 +181,7 @@ async def get_batch_status(request: BatchStatusRequest):
         request: List of task IDs
         
     Returns:
-        List of task status information
+        List of task status information (includes completed_at for finished/failed tasks)
     """
     results = []
     
@@ -188,7 +192,8 @@ async def get_batch_status(request: BatchStatusRequest):
             results.append(TaskStatusResponse(
                 task_id=task_id,
                 status=task_dict["status"],
-                exists=True
+                exists=True,
+                completed_at=None
             ))
             continue
         
@@ -198,7 +203,8 @@ async def get_batch_status(request: BatchStatusRequest):
             results.append(TaskStatusResponse(
                 task_id=task_id,
                 status=db_record["status"],
-                exists=True
+                exists=True,
+                completed_at=db_record.get("completed_at")
             ))
             continue
         
@@ -206,7 +212,8 @@ async def get_batch_status(request: BatchStatusRequest):
         results.append(TaskStatusResponse(
             task_id=task_id,
             status="not_found",
-            exists=False
+            exists=False,
+            completed_at=None
         ))
     
     return BatchStatusResponse(results=results)

@@ -5,12 +5,13 @@ import signal
 import sys
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 from multiprocessing import Queue
 from contextlib import redirect_stdout, redirect_stderr
 
 from app.task_queue import TaskStatus, TaskQueueManager
+from app.utils import format_utc_time, get_log_file_path, handle_task_failure, handle_task_success
 from app.database import TaskDatabase
 from app.pipeline import extract_frames, run_colmap_sfm, run_lichtfeld_training, compress_splat
 from app.pipeline.colmap_sfm import extract_camera_parameters
@@ -61,7 +62,7 @@ def preprocessing_worker(
                 work_dir = Path(task_dict["work_dir"])
                 video_path = task_dict["video_path"]
                 output_dir = work_dir / "images"
-                log_file = work_dir / "preprocessing.log"
+                log_file = get_log_file_path(work_dir, "preprocessing")
                 
                 frame_config = config["FRAME_EXTRACTION"]
                 
@@ -87,9 +88,7 @@ def preprocessing_worker(
                 WorkerLogger.log_task_finish("Preprocessing", task_id)
                 
             except Exception as e:
-                WorkerLogger.log_task_failed("Preprocessing", task_id, str(e))
-                db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
-                # Will be saved to DB by main process
+                handle_task_failure(db, "Preprocessing", task_id, task_dict, e)
                 
         except Exception:
             # Timeout or other errors, continue
@@ -127,7 +126,7 @@ def sfm_worker(
             
             try:
                 work_dir = Path(task_dict["work_dir"])
-                log_file = work_dir / "sfm.log"
+                log_file = get_log_file_path(work_dir, "sfm")
                 
                 result = run_colmap_sfm(
                     source=work_dir,
@@ -152,8 +151,7 @@ def sfm_worker(
                 WorkerLogger.log_task_finish("SfM", task_id)
                 
             except Exception as e:
-                WorkerLogger.log_task_failed("SfM", task_id, str(e))
-                db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
+                handle_task_failure(db, "SfM", task_id, task_dict, e)
                 
         except Exception:
             continue
@@ -191,7 +189,7 @@ def reconstruction_worker(
             try:
                 work_dir = Path(task_dict["work_dir"])
                 lf_params = config["LICHTFELD_PARAMS"]
-                log_file = work_dir / "reconstruction.log"
+                log_file = get_log_file_path(work_dir, "reconstruction")
                 
                 result = run_lichtfeld_training(
                     executable=config["BINARIES"]["LICHTFELD_PATH"],
@@ -212,8 +210,7 @@ def reconstruction_worker(
                 WorkerLogger.log_task_finish("Reconstruction", task_id)
                 
             except Exception as e:
-                WorkerLogger.log_task_failed("Reconstruction", task_id, str(e))
-                db.update_active_task_status(task_id, TaskStatus.FAILURE, str(e))
+                handle_task_failure(db, "Reconstruction", task_id, task_dict, e)
                 
         except Exception:
             continue
@@ -250,7 +247,7 @@ def compress_worker(
             
             try:
                 work_dir = Path(task_dict["work_dir"])
-                log_file = work_dir / "compress.log"
+                log_file = get_log_file_path(work_dir, "compress")
                 
                 # Find the latest splat_*.ply file
                 ply_files = sorted(work_dir.glob("splat_*.ply"))
@@ -271,33 +268,10 @@ def compress_worker(
                     raise RuntimeError("Compression failed")
                 
                 # Task completed successfully
-                WorkerLogger.log_task_finish("Compress", task_id)
-                
-                # Save to history
-                created_at = datetime.fromisoformat(task_dict["created_at"])
-                db.save_task_history_sync(
-                    task_id=task_id,
-                    status="finish",
-                    created_at=created_at,
-                    completed_at=datetime.now()
-                )
-                
-                # Remove from active queue
-                db.remove_active_task(task_id)
+                handle_task_success(db, "Compress", task_id, task_dict)
                 
             except Exception as e:
-                WorkerLogger.log_task_failed("Compress", task_id, str(e))
-                
-                # Save failure to history
-                created_at = datetime.fromisoformat(task_dict["created_at"])
-                db.save_task_history_sync(
-                    task_id=task_id,
-                    status="failure",
-                    created_at=created_at,
-                    completed_at=datetime.now()
-                )
-                
-                db.remove_active_task(task_id)
+                handle_task_failure(db, "Compress", task_id, task_dict, e)
                 
         except Exception:
             continue

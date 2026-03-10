@@ -3,8 +3,10 @@ Task queue management with multiprocessing support.
 """
 from multiprocessing import Queue
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+
+from app.utils import format_utc_time
 
 
 class TaskStatus(str, Enum):
@@ -26,7 +28,7 @@ class Task:
         self.video_path = video_path
         self.work_dir = work_dir
         self.status = TaskStatus.WAITING
-        self.created_at = datetime.now()
+        self.created_at = datetime.now(timezone.utc)
         self.error: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
@@ -36,7 +38,7 @@ class Task:
             "video_path": self.video_path,
             "work_dir": self.work_dir,
             "status": self.status,
-            "created_at": self.created_at.isoformat(),
+            "created_at": format_utc_time(self.created_at),
             "error": self.error
         }
 
