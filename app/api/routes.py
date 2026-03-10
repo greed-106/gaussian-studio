@@ -36,6 +36,8 @@ class TaskStatusResponse(BaseModel):
     status: str
     exists: bool
     completed_at: str | None = None  # ISO format timestamp for finished/failed tasks
+    intrinsic_matrix: List[float] | None = None  # Camera intrinsic matrix (3x3 flattened)
+    extrinsic_matrix: List[float] | None = None  # Camera extrinsic matrix (4x4 flattened)
 
 
 class BatchStatusRequest(BaseModel):
@@ -163,7 +165,7 @@ async def get_task_status(task_id: str):
         task_id: Task ID
         
     Returns:
-        Task status information (includes completed_at for finished/failed tasks)
+        Task status information (includes completed_at and camera metadata for finished tasks)
     """
     # Check in queue first
     task_dict = queue_manager.get_task(task_id)
@@ -172,17 +174,26 @@ async def get_task_status(task_id: str):
             task_id=task_id,
             status=task_dict["status"],
             exists=True,
-            completed_at=None
+            completed_at=None,
+            intrinsic_matrix=None,
+            extrinsic_matrix=None
         )
     
     # Check in database
     db_record = await db.get_task_history(task_id)
     if db_record:
+        # Get camera metadata if task is finished
+        metadata = None
+        if db_record["status"] == "finish":
+            metadata = await db.get_metadata(task_id)
+        
         return TaskStatusResponse(
             task_id=task_id,
             status=db_record["status"],
             exists=True,
-            completed_at=db_record.get("completed_at")
+            completed_at=db_record.get("completed_at"),
+            intrinsic_matrix=metadata.get("intrinsic_matrix") if metadata else None,
+            extrinsic_matrix=metadata.get("extrinsic_matrix") if metadata else None
         )
     
     # Task not found
@@ -190,7 +201,9 @@ async def get_task_status(task_id: str):
         task_id=task_id,
         status="not_found",
         exists=False,
-        completed_at=None
+        completed_at=None,
+        intrinsic_matrix=None,
+        extrinsic_matrix=None
     )
 
 
@@ -203,7 +216,7 @@ async def get_batch_status(request: BatchStatusRequest):
         request: List of task IDs
         
     Returns:
-        List of task status information (includes completed_at for finished/failed tasks)
+        List of task status information (includes completed_at and camera metadata for finished tasks)
     """
     results = []
     
@@ -215,18 +228,27 @@ async def get_batch_status(request: BatchStatusRequest):
                 task_id=task_id,
                 status=task_dict["status"],
                 exists=True,
-                completed_at=None
+                completed_at=None,
+                intrinsic_matrix=None,
+                extrinsic_matrix=None
             ))
             continue
         
         # Check in database
         db_record = await db.get_task_history(task_id)
         if db_record:
+            # Get camera metadata if task is finished
+            metadata = None
+            if db_record["status"] == "finish":
+                metadata = await db.get_metadata(task_id)
+            
             results.append(TaskStatusResponse(
                 task_id=task_id,
                 status=db_record["status"],
                 exists=True,
-                completed_at=db_record.get("completed_at")
+                completed_at=db_record.get("completed_at"),
+                intrinsic_matrix=metadata.get("intrinsic_matrix") if metadata else None,
+                extrinsic_matrix=metadata.get("extrinsic_matrix") if metadata else None
             ))
             continue
         
@@ -235,7 +257,9 @@ async def get_batch_status(request: BatchStatusRequest):
             task_id=task_id,
             status="not_found",
             exists=False,
-            completed_at=None
+            completed_at=None,
+            intrinsic_matrix=None,
+            extrinsic_matrix=None
         ))
     
     return BatchStatusResponse(results=results)

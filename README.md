@@ -136,13 +136,17 @@ GET /status/{task_id}
   "task_id": "1234567890123456789",
   "status": "waiting|preprocessing|sfm|reconstruction|compress|finish|failure",
   "exists": true,
-  "completed_at": "2026-03-10T14:30:05Z"  // 仅当 status 为 finish 或 failure 时存在
+  "completed_at": "2026-03-10T14:30:05Z",  // 仅当 status 为 finish 或 failure 时存在
+  "intrinsic_matrix": [fx, 0, cx, 0, fy, cy, 0, 0, 1],  // 仅当 status 为 finish 时存在
+  "extrinsic_matrix": [r11, r12, r13, tx, r21, r22, r23, ty, r31, r32, r33, tz, 0, 0, 0, 1]  // 仅当 status 为 finish 时存在
 }
 ```
 
 说明：
 - `completed_at`: 任务完成时间（UTC 时间，ISO 8601 格式，如 `2026-03-10T14:30:05Z`），仅当任务状态为 `finish` 或 `failure` 时返回
-- 进行中的任务（waiting, preprocessing, sfm, reconstruction, compress）该字段为 `null`
+- `intrinsic_matrix`: 相机内参矩阵（3x3 展平为 9 个元素），仅当任务状态为 `finish` 时返回
+- `extrinsic_matrix`: 相机外参矩阵（4x4 展平为 16 个元素，世界到相机变换），仅当任务状态为 `finish` 时返回
+- 进行中的任务（waiting, preprocessing, sfm, reconstruction, compress）这些字段为 `null`
 
 ### 批量查询任务状态
 
@@ -162,13 +166,17 @@ Content-Type: application/json
       "task_id": "1234567890123456789",
       "status": "finish",
       "exists": true,
-      "completed_at": "2026-03-10T14:30:05Z"
+      "completed_at": "2026-03-10T14:30:05Z",
+      "intrinsic_matrix": [fx, 0, cx, 0, fy, cy, 0, 0, 1],
+      "extrinsic_matrix": [r11, r12, r13, tx, r21, r22, r23, ty, r31, r32, r33, tz, 0, 0, 0, 1]
     },
     {
       "task_id": "1234567890123456790",
       "status": "preprocessing",
       "exists": true,
-      "completed_at": null
+      "completed_at": null,
+      "intrinsic_matrix": null,
+      "extrinsic_matrix": null
     }
   ]
 }
@@ -176,7 +184,9 @@ Content-Type: application/json
 
 说明：
 - `completed_at`: 任务完成时间（UTC 时间，ISO 8601 格式，如 `2026-03-10T14:30:05Z`），仅当任务状态为 `finish` 或 `failure` 时返回
-- 进行中的任务该字段为 `null`
+- `intrinsic_matrix`: 相机内参矩阵（3x3 展平为 9 个元素），仅当任务状态为 `finish` 时返回
+- `extrinsic_matrix`: 相机外参矩阵（4x4 展平为 16 个元素，世界到相机变换），仅当任务状态为 `finish` 时返回
+- 进行中的任务这些字段为 `null`
 
 ### 队列统计
 
